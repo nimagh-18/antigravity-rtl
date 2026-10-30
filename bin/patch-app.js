@@ -26,6 +26,26 @@ function stripPatch(code) {
     return PATCH_BLOCK.test(code) ? code.replace(PATCH_BLOCK, ANCHOR) : null;
 }
 
+export function resolveAppAsarPath(inputPath) {
+    if (!inputPath || !fs.existsSync(inputPath)) return null;
+    try {
+        const stat = fs.statSync(inputPath);
+        if (stat.isFile() && inputPath.endsWith('.asar')) return inputPath;
+        if (stat.isDirectory()) {
+            const candidates = [
+                path.join(inputPath, 'resources', 'app.asar'),
+                path.join(inputPath, 'Antigravity-x64', 'resources', 'app.asar'),
+                path.join(inputPath, 'antigravity', 'resources', 'app.asar'),
+                path.join(inputPath, 'Contents', 'Resources', 'app.asar')
+            ];
+            for (const c of candidates) {
+                if (fs.existsSync(c)) return c;
+            }
+        }
+    } catch (_) {}
+    return null;
+}
+
 function getAppCandidatePaths() {
     const candidates = [];
     const platform = os.platform();
@@ -45,6 +65,8 @@ function getAppCandidatePaths() {
             candidates.push(path.join(process.env['PROGRAMFILES(X86)'], 'Antigravity', 'resources', 'app.asar'));
         }
     } else {
+        candidates.push(path.join(os.homedir(), 'Downloads', 'Antigravity', 'Antigravity-x64', 'resources', 'app.asar'));
+        candidates.push(path.join(os.homedir(), 'Downloads', 'Antigravity', 'resources', 'app.asar'));
         candidates.push('/opt/Antigravity/resources/app.asar');
         candidates.push('/opt/antigravity/resources/app.asar');
         candidates.push('/usr/share/antigravity/resources/app.asar');
@@ -83,7 +105,8 @@ export async function getAppAsarPath() {
     return response.customPath;
 }
 
-export async function restoreApp(asarPath, { exitOnError = true } = {}) {
+export async function restoreApp(rawPath, { exitOnError = true } = {}) {
+    const asarPath = resolveAppAsarPath(rawPath) || rawPath;
     const backupPath = asarPath + '.bak';
     if (!fs.existsSync(backupPath)) {
         console.error(red('✖ No backup found for Antigravity (App) to restore.\n'));
@@ -110,7 +133,8 @@ export async function restoreApp(asarPath, { exitOnError = true } = {}) {
     }
 }
 
-export async function patchApp(asarPath, { exitOnError = true } = {}) {
+export async function patchApp(rawPath, { exitOnError = true } = {}) {
+    const asarPath = resolveAppAsarPath(rawPath) || rawPath;
     const backupPath = asarPath + '.bak';
     const extractDir = path.join(path.dirname(asarPath), 'app-extracted-rtl-temp');
     const spinner = ora('Checking permissions and backing up Antigravity App...').start();
@@ -119,6 +143,61 @@ export async function patchApp(asarPath, { exitOnError = true } = {}) {
         fs.accessSync(path.dirname(asarPath), fs.constants.W_OK);
 
         failLabel = 'Failed to read app.asar.';
+        let unpackOptions = {};
+        try {
+            const unpackedDirs = new Set();
+            const scanHeader = (asarFile) => {
+                if (!asarFile || !fs.existsSync(asarFile)) return;
+                try {
+                    const rawHeader = asar.getRawHeader(asarFile);
+                    const headerObj = JSON.parse(rawHeader.headerString);
+                    const scanUnpacked = (node, currentPath = '') => {
+                        if (node.unpacked && currentPath) {
+                            const parts = currentPath.split('/');
+                            if (parts[0] === 'node_modules' && parts.length >= 2) {
+                                unpackedDirs.add(parts.slice(0, parts[1].startsWith('@') ? 3 : 2).join('/'));
+                            } else {
+                                unpackedDirs.add(parts[0]);
+                            }
+                        }
+                        if (node.files) {
+                            for (const [key, val] of Object.entries(node.files)) {
+                                scanUnpacked(val, currentPath ? `${currentPath}/${key}` : key);
+                            }
+                        }
+                    };
+                    scanUnpacked(headerObj);
+                } catch (_) {}
+            };
+            scanHeader(backupPath);
+            scanHeader(asarPath);
+
+            const unpackedFolder = path.join(path.dirname(asarPath), path.basename(asarPath) + '.unpacked');
+            if (fs.existsSync(unpackedFolder)) {
+                const nm = path.join(unpackedFolder, 'node_modules');
+                if (fs.existsSync(nm)) {
+                    for (const item of fs.readdirSync(nm)) {
+                        if (item.startsWith('@')) {
+                            for (const sub of fs.readdirSync(path.join(nm, item))) {
+                                unpackedDirs.add(`node_modules/${item}/${sub}`);
+                            }
+                        } else {
+                            unpackedDirs.add(`node_modules/${item}`);
+                        }
+                    }
+                }
+            }
+
+            if (unpackedDirs.size > 0) {
+                const patterns = Array.from(unpackedDirs).map(d => `**/${d}/**`);
+                const dirList = Array.from(unpackedDirs);
+                unpackOptions = {
+                    unpack: patterns.length === 1 ? patterns[0] : `{${patterns.join(',')}}`,
+                    unpackDir: dirList.length === 1 ? dirList[0] : `{${dirList.join(',')}}`
+                };
+            }
+        } catch (_) {}
+
         const currentUtils = readUtils(asarPath);
         const backupUtils = fs.existsSync(backupPath) ? readUtils(backupPath) : null;
         let cleanUtils;
@@ -150,7 +229,7 @@ export async function patchApp(asarPath, { exitOnError = true } = {}) {
             spinner.text = 'Rebuilding clean backup...';
             fs.writeFileSync(utilsPath, cleanUtils);
             fs.rmSync(fontDest, { force: true });
-            await asar.createPackage(extractDir, backupPath);
+            await asar.createPackageWithOptions(extractDir, backupPath, unpackOptions);
             asar.uncache(backupPath);
         }
 
@@ -173,7 +252,7 @@ export async function patchApp(asarPath, { exitOnError = true } = {}) {
 
         failLabel = 'Failed to repack ASAR.';
         spinner.text = 'Repacking app.asar (almost done)...';
-        await asar.createPackage(extractDir, asarPath);
+        await asar.createPackageWithOptions(extractDir, asarPath, unpackOptions);
         asar.uncache(asarPath);
         fs.rmSync(extractDir, { recursive: true, force: true });
         spinner.succeed('Successfully patched Antigravity!');

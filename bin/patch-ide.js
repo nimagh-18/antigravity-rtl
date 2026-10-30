@@ -49,6 +49,8 @@ function getIdeCandidatePaths() {
         }
     } else {
         // Linux candidates
+        candidates.push(path.join(os.homedir(), 'Downloads', 'Antigravity IDE (1)', 'Antigravity IDE'));
+        candidates.push(path.join(os.homedir(), 'Downloads', 'Antigravity IDE (1)'));
         candidates.push(path.join(os.homedir(), 'Downloads', 'Antigravity IDE'));
         candidates.push('/opt/Antigravity IDE');
         candidates.push('/opt/antigravity-ide');

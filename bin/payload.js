@@ -59,7 +59,9 @@ win.webContents.on('console-message', (event, ...args) => {
                         if (!root || !root.children || root.children.length === 0) return false;
                         return Boolean(document.querySelector('[role="navigation"]') || 
                                        document.querySelector('[role="main"]') || 
-                                       document.querySelector('[contenteditable="true"]'));
+                                       document.querySelector('[contenteditable="true"]') ||
+                                       document.querySelector('[data-testid="conversation-view"]') ||
+                                       document.body.children.length > 0);
                     } catch (_) {
                         return false;
                     }
@@ -497,12 +499,24 @@ win.webContents.on('console-message', (event, ...args) => {
                         /* Custom CSS removed to rely on Tailwind completely */
                         
                         /* Code Blocks & Terminal */
-                        pre, code, pre *, code *,
+                        pre:not([dir="rtl"]), code:not([dir="rtl"]), pre:not([dir="rtl"]) *, code:not([dir="rtl"]) *,
                         .xterm, .xterm * {
                             unicode-bidi: isolate !important;
                             direction: ltr !important;
                             text-align: left !important;
                             font-family: \${codeFontStr} !important;
+                        }
+
+                        pre[dir="rtl"], pre[dir="rtl"] * {
+                            unicode-bidi: isolate !important;
+                            direction: rtl !important;
+                            text-align: right !important;
+                        }
+
+                        /* Math Formulas (KaTeX / MathJax) Isolation */
+                        .katex, .katex-display, [data-math] {
+                            direction: ltr !important;
+                            unicode-bidi: isolate !important;
                         }
                         
                         /* AI Response Line Height */
@@ -664,6 +678,11 @@ win.webContents.on('console-message', (event, ...args) => {
                             || document.querySelector('[data-testid="install-editor"]')?.parentElement;
                         if (actionsCluster) {
                             actionsCluster.appendChild(widgetWrapper);
+                        } else {
+                            widgetWrapper.style.cssText = 'position:fixed;right:16px;top:10px;z-index:2147483646;app-region:no-drag;';
+                            if (widgetWrapper.parentElement !== document.body) {
+                                document.body.appendChild(widgetWrapper);
+                            }
                         }
                     }
                     if (!document.getElementById('rtl-dropdown-panel')) {

@@ -4,46 +4,78 @@
  */
 window.__antigravityRtlCore = window.__antigravityRtlCore || (() => {
     const ZERO_WIDTH = /[​-‏﻿]/g;
-    const STRONG_CHAR = /[A-Za-z؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
-    const ARABIC_CHAR = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+    const RTL_CHAR_RE = /(?=[\p{Script_Extensions=Arabic}\p{Script_Extensions=Hebrew}])\p{Letter}/gu;
+    const LATIN_CHAR_RE = /(?=\p{Script=Latin})\p{Letter}/gu;
     const BLOCKS = `
         .prose > *,
         [data-testid="chat-message"] > *,
         .markdown-body > *,
         .leading-relaxed > *,
         [data-testid="user-input-step"],
-        [data-testid="user-input-step"] > *,
+        [data-testid="user-input-step"] *,
+        [data-testid="user-message-bubble"] div.whitespace-pre-wrap,
         [data-testid="conversation-view"] p,
         [data-testid="conversation-view"] li,
         div:has(> [role="radiogroup"]),
-        label[for^="ask-opt-"]
+        label[for^="ask-opt-"],
+        pre
     `;
+
+    function isRtl(text) {
+        if (!text) return false;
+        const withoutCodeAndUrls = text
+            .replace(/https?:\/\/\S+/gi, ' ')
+            .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi, ' ')
+            .replace(/git@[^\s]+/gi, ' ')
+            .replace(/\x60[^\x60]+\x60/g, ' ');
+        const clean = withoutCodeAndUrls.replace(/[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g, ' ').trim();
+        if (!clean) return false;
+        const rtlCount = (clean.match(RTL_CHAR_RE) || []).length;
+        if (!rtlCount) return false;
+        const latinCount = (clean.match(LATIN_CHAR_RE) || []).length;
+        return rtlCount > latinCount * 0.4;
+    }
 
     function setDir(el, dir) {
         if (el.getAttribute('dir') !== dir) el.setAttribute('dir', dir);
     }
 
-    // Sets dir on inputs and chat blocks from their first strong character.
+    // Sets dir on inputs and chat blocks from their text analysis.
     function updateDir(forceRTL) {
         document.querySelectorAll('[contenteditable="true"] p, [contenteditable="true"], textarea[data-testid="ask-question-writein"]').forEach(el => {
             const raw = el.tagName === 'TEXTAREA' ? el.value : el.textContent;
             const text = (raw || '').replace(ZERO_WIDTH, '').trim();
             if (text.length > 0) {
-                setDir(el, /^[^a-zA-Z]*[֑-߿יִ-﷽ﹰ-ﻼ]/.test(text) ? 'rtl' : 'ltr');
+                setDir(el, isRtl(text) ? 'rtl' : 'ltr');
             } else if (el.hasAttribute('dir')) {
                 el.removeAttribute('dir');
             }
         });
 
         document.querySelectorAll(BLOCKS).forEach(el => {
-            if (el.tagName === 'PRE' || el.tagName === 'CODE' || el.closest('.monaco-editor') || el.closest('.terminal')) return;
+            if (el.closest('.monaco-editor') || el.closest('.terminal') || el.closest('.katex') || el.closest('.katex-display')) return;
+
+            if (el.tagName === 'PRE') {
+                const lang = el.getAttribute('data-language') || el.className;
+                const isTextOrMd = !lang || ['markdown', 'md', 'text', 'txt', 'plaintext'].some(l => (lang || '').toLowerCase().includes(l));
+                const contentEl = (el.querySelector ? el.querySelector('.code-block, code') : null) || el;
+                const text = (contentEl.textContent || '').replace(ZERO_WIDTH, '').trim();
+                if (isTextOrMd && isRtl(text)) {
+                    setDir(el, 'rtl');
+                } else if (el.getAttribute('dir') === 'rtl') {
+                    el.removeAttribute('dir');
+                }
+                return;
+            }
+
+            if (el.tagName === 'CODE') return;
 
             let dir = 'auto';
             if (forceRTL) {
                 dir = 'rtl';
             } else {
-                const firstChar = (el.textContent || '').replace(ZERO_WIDTH, '').match(STRONG_CHAR);
-                if (firstChar) dir = ARABIC_CHAR.test(firstChar[0]) ? 'rtl' : 'ltr';
+                const text = (el.textContent || '').replace(ZERO_WIDTH, '').trim();
+                if (text) dir = isRtl(text) ? 'rtl' : 'ltr';
             }
             setDir(el, dir);
         });
@@ -77,5 +109,5 @@ window.__antigravityRtlCore = window.__antigravityRtlCore || (() => {
         });
     }
 
-    return { updateDir, watch, onToggleShortcut };
+    return { updateDir, watch, onToggleShortcut, isRtl };
 })();

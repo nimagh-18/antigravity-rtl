@@ -11,6 +11,7 @@ import {
     restoreApp,
     getAppAsarPath,
     detectAppAsarPath,
+    resolveAppAsarPath,
     hasAppBackup
 } from './patch-app.js';
 import {
@@ -206,7 +207,18 @@ async function main() {
 
     if (customPath) {
         const ideDir = resolveIdeAppDir(customPath);
-        ok = (forceIde || ideDir) ? await runIde(ideDir || customPath) : await runApp(customPath);
+        const appAsar = resolveAppAsarPath(customPath);
+        if (forceIde) {
+            ok = await runIde(ideDir || customPath);
+        } else if (forceApp) {
+            ok = await runApp(appAsar || customPath);
+        } else if (ideDir) {
+            ok = await runIde(ideDir);
+        } else if (appAsar) {
+            ok = await runApp(appAsar);
+        } else {
+            ok = await runApp(customPath);
+        }
     } else if (forceApp && !forceIde) {
         ok = await runApp(await getAppAsarPath());
     } else if (forceIde && !forceApp) {

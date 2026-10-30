@@ -7,7 +7,7 @@ import vm from 'vm';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import * as asar from '@electron/asar';
-import { patchApp, restoreApp } from '../bin/patch-app.js';
+import { patchApp, restoreApp, resolveAppAsarPath } from '../bin/patch-app.js';
 import { patchIde, restoreIde } from '../bin/patch-ide.js';
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin');
@@ -112,4 +112,36 @@ test('IDE: an update refreshes a stale backup', async () => {
     assert.equal(await restoreIde(appDir, { exitOnError: false }), true);
     assert.equal(fs.readFileSync(mainJs, 'utf8'), "console.log('v2');\n");
     assert.equal(fs.readFileSync(html, 'utf8'), `<meta content="font-src 'self' v2;">`);
+});
+
+test('resolveAppAsarPath: resolves folder and nested Antigravity-x64 paths', async () => {
+    const root = tmp();
+    const asarFile = path.join(root, 'app.asar');
+    fs.writeFileSync(asarFile, '');
+
+    assert.equal(resolveAppAsarPath(asarFile), asarFile);
+
+    const folder1 = path.join(root, 'folder1');
+    fs.mkdirSync(path.join(folder1, 'resources'), { recursive: true });
+    fs.writeFileSync(path.join(folder1, 'resources', 'app.asar'), '');
+    assert.equal(resolveAppAsarPath(folder1), path.join(folder1, 'resources', 'app.asar'));
+
+    const folder2 = path.join(root, 'folder2');
+    fs.mkdirSync(path.join(folder2, 'Antigravity-x64', 'resources'), { recursive: true });
+    fs.writeFileSync(path.join(folder2, 'Antigravity-x64', 'resources', 'app.asar'), '');
+    assert.equal(resolveAppAsarPath(folder2), path.join(folder2, 'Antigravity-x64', 'resources', 'app.asar'));
+});
+
+test('rtl-core: isRtl correctly classifies Persian text even when starting with English words or links', async () => {
+    const coreCode = fs.readFileSync(path.join(BIN, 'rtl-core.js'), 'utf8');
+    const sandbox = { window: {} };
+    vm.createContext(sandbox);
+    vm.runInContext(coreCode, sandbox);
+    const { isRtl } = sandbox.window.__antigravityRtlCore;
+
+    assert.equal(isRtl('سلام این متن آزمایشی است'), true);
+    assert.equal(isRtl('This is purely English text'), false);
+    assert.equal(isRtl('git@github.com:mmnaderi/antigravity-rtl.git\n\nاینو فورکش کن و توی دسکتاپ کلونش کن'), true);
+    assert.equal(isRtl('https://github.com/mmnaderi/antigravity-rtl این ریپو را بررسی کن'), true);
+    assert.equal(isRtl('docker run -d با این دستور کانتینر را اجرا کن'), true);
 });
