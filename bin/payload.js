@@ -673,16 +673,26 @@ win.webContents.on('console-message', (event, ...args) => {
                 \`;
 
                 function attachElements() {
-                    if (!document.getElementById('rtl-topbar-wrapper')) {
-                        const actionsCluster = document.querySelector('[data-testid="titlebar-more-actions"]')?.parentElement
-                            || document.querySelector('[data-testid="install-editor"]')?.parentElement;
-                        if (actionsCluster) {
-                            actionsCluster.appendChild(widgetWrapper);
-                        } else {
-                            widgetWrapper.style.cssText = 'position:fixed;right:16px;top:10px;z-index:2147483646;app-region:no-drag;';
-                            if (widgetWrapper.parentElement !== document.body) {
-                                document.body.appendChild(widgetWrapper);
+                    const moreActionsBtn = document.querySelector('[data-testid="titlebar-more-actions"]');
+                    const actionsCluster = moreActionsBtn?.parentElement
+                        || document.querySelector('[data-testid="install-editor"]')?.parentElement
+                        || document.querySelector('[data-testid="toggle-aux-sidebar"]')?.parentElement;
+
+                    if (actionsCluster) {
+                        widgetWrapper.removeAttribute('style');
+                        widgetWrapper.className = 'flex items-center';
+                        if (widgetWrapper.parentElement !== actionsCluster) {
+                            if (moreActionsBtn && moreActionsBtn.parentElement === actionsCluster) {
+                                actionsCluster.insertBefore(widgetWrapper, moreActionsBtn);
+                            } else {
+                                actionsCluster.appendChild(widgetWrapper);
                             }
+                        }
+                    } else if (!document.getElementById('rtl-topbar-wrapper')) {
+                        // Safe fallback below system window controls (e.g. top: 44px)
+                        widgetWrapper.style.cssText = 'position:fixed;right:16px;top:44px;z-index:2147483646;app-region:no-drag;';
+                        if (widgetWrapper.parentElement !== document.body) {
+                            document.body.appendChild(widgetWrapper);
                         }
                     }
                     if (!document.getElementById('rtl-dropdown-panel')) {
@@ -692,7 +702,16 @@ win.webContents.on('console-message', (event, ...args) => {
                 attachElements();
 
                 const topbarObserver = new MutationObserver(() => {
-                    if (!document.getElementById('rtl-topbar-wrapper') || !document.getElementById('rtl-dropdown-panel')) {
+                    const moreActionsBtn = document.querySelector('[data-testid="titlebar-more-actions"]');
+                    const actionsCluster = moreActionsBtn?.parentElement
+                        || document.querySelector('[data-testid="install-editor"]')?.parentElement
+                        || document.querySelector('[data-testid="toggle-aux-sidebar"]')?.parentElement;
+
+                    if (actionsCluster) {
+                        if (widgetWrapper.parentElement !== actionsCluster) {
+                            attachElements();
+                        }
+                    } else if (!document.getElementById('rtl-topbar-wrapper') || !document.getElementById('rtl-dropdown-panel')) {
                         attachElements();
                     }
                 });
